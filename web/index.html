@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#101114">
+  <title>Audio Augment</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23101114'/%3E%3Cpath d='M6 16h3l2-6 3 12 2-6h8' fill='none' stroke='%23ffb703' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css?v=5">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 40 40" aria-hidden="true">
+          <rect width="40" height="40" rx="12" fill="#1c212b"/>
+          <path d="M8 20h4l2.5-7 4 14 2.5-7H32" fill="none" stroke="#ffb703" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <div>
+          <p class="eyebrow">Audio lab</p>
+          <h1>Audio Augment</h1>
+        </div>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="Chức năng">
+        <button type="button" role="tab" id="tab-augment" data-tab="augment" aria-selected="true" aria-controls="panel-augment">Xử lý âm thanh</button>
+        <button type="button" role="tab" id="tab-youtube" data-tab="youtube" aria-selected="false" aria-controls="panel-youtube">Tải YouTube</button>
+      </nav>
+    </div>
+  </header>
+  <div class="app">
+    <p id="api-status" class="status">Đang kiểm tra API…</p>
+    <p id="ffmpeg-note" class="note" hidden>
+      Máy này chưa thấy FFmpeg trong PATH. WAV vẫn xử lý được. M4A, AAC và file MP3 xuất ra cần FFmpeg:
+      <code>winget install Gyan.FFmpeg</code>
+    </p>
+
+    <div id="panel-augment" class="tab-panel" data-panel="augment" role="tabpanel" aria-labelledby="tab-augment">
+      <p class="lede">
+        Tạo biến thể âm thanh nhẹ để huấn luyện mô hình và thử pipeline xử lý tín hiệu.
+        Mặc định giữ chất lượng tự nhiên: không đổi cao độ, không đổi tempo, lọc 70 Hz–15 kHz, nhiễu hồng −48 dB.
+      </p>
+
+    <ol class="pipeline" id="pipeline">
+      <li data-step="pitch">Cao độ</li>
+      <li data-step="speed">Tempo</li>
+      <li data-step="eq">EQ</li>
+      <li data-step="noise">Nhiễu</li>
+    </ol>
+
+    <main class="layout">
+      <section class="panel" aria-labelledby="source-title">
+        <div class="panel-head">
+          <h2 id="source-title">Nguồn</h2>
+          <p>WAV, MP3, FLAC, OGG, M4A hoặc AIFF. Tối đa 40 MB, 10 phút.</p>
+        </div>
+
+        <div class="picker">
+          <label class="dropzone" id="dropzone">
+            <input id="file" type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac,.aiff,.aif">
+            <span class="drop-copy">
+              <span id="drop-title" class="drop-title">Kéo thả file vào đây</span>
+              <span id="drop-meta" class="drop-sub">hoặc bấm để chọn</span>
+            </span>
+          </label>
+          <button type="button" id="clear-file" class="text-btn" hidden>Bỏ chọn</button>
+        </div>
+
+        <div id="source-preview" class="preview" hidden>
+          <canvas id="source-wave" class="wave"></canvas>
+          <audio id="source-audio" controls></audio>
+        </div>
+
+        <form id="form" novalidate>
+          <fieldset>
+            <legend>01 · Cao độ</legend>
+            <div class="control">
+              <div class="control-top">
+                <label for="pitch">Dịch semitone</label>
+                <output id="pitch-readout" for="pitch">0.0 st</output>
+              </div>
+              <input id="pitch" type="range" min="-1.5" max="1.5" step="0.1" value="0">
+              <p class="help">Từ −1.5 đến +1.5. Mặc định 0 là giữ nguyên tone.</p>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>02 · Tempo</legend>
+            <div class="control">
+              <div class="control-top">
+                <label for="speed">Tốc độ phát</label>
+                <output id="speed-readout" for="speed">1.00×</output>
+              </div>
+              <input id="speed" type="range" min="0.95" max="1.05" step="0.01" value="1">
+              <p class="help">0.95× chậm hơn một chút, 1.05× nhanh hơn một chút. Mặc định 1.00×.</p>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>03 · EQ</legend>
+            <label class="switch">
+              <input id="eq" type="checkbox" checked>
+              <span>Bật high-pass và low-pass</span>
+            </label>
+            <div class="eq-grid" id="eq-fields">
+              <label>
+                High-pass
+                <input id="highpass" type="number" min="20" max="500" step="1" value="70" inputmode="numeric">
+                <span>Hz, cắt bên dưới</span>
+              </label>
+              <label>
+                Low-pass
+                <input id="lowpass" type="number" min="4000" max="20000" step="50" value="15000" inputmode="numeric">
+                <span>Hz, cắt bên trên</span>
+              </label>
+            </div>
+            <p class="help">Mặc định cắt dưới 70 Hz và trên 15 kHz để gọn phổ mà không làm méo giọng.</p>
+          </fieldset>
+
+          <fieldset>
+            <legend>04 · Nhiễu nền</legend>
+            <div class="pills" role="radiogroup" aria-label="Loại nhiễu">
+              <label><input type="radio" name="noise_type" value="pink" checked> Hồng</label>
+              <label><input type="radio" name="noise_type" value="white"> Trắng</label>
+              <label><input type="radio" name="noise_type" value="none"> Tắt</label>
+            </div>
+            <div class="control" id="noise-fields">
+              <div class="control-top">
+                <label for="noise-db">Mức so với tín hiệu</label>
+                <output id="noise-readout" for="noise-db">−48 dB</output>
+              </div>
+              <input id="noise-db" type="range" min="-80" max="-24" step="1" value="-48">
+              <p class="help">−48 dB rất nhỏ. Kéo về −30 dB nếu muốn nghe rõ nhiễu khi kiểm tra.</p>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Định dạng xuất</legend>
+            <div class="pills" role="radiogroup" aria-label="Định dạng xuất">
+              <label><input type="radio" name="output_format" value="wav" checked> WAV</label>
+              <label><input type="radio" name="output_format" value="mp3"> MP3</label>
+            </div>
+          </fieldset>
+
+          <details class="advanced">
+            <summary>Nâng cao</summary>
+            <label class="switch">
+              <input id="randomize" type="checkbox">
+              <span>Chọn ngẫu nhiên cao độ và tempo trong ngưỡng an toàn</span>
+            </label>
+            <label class="seed-field">
+              Seed để lặp lại kết quả
+              <input id="seed" type="number" min="0" max="2147483647" step="1" placeholder="để trống nếu không cần">
+            </label>
+          </details>
+
+          <p id="form-error" class="error" role="alert" hidden></p>
+          <p id="form-status" class="status" aria-live="polite"></p>
+
+          <div class="actions">
+            <button id="submit" class="btn primary" type="submit">Xử lý và xuất file <kbd>Ctrl</kbd><kbd>Enter</kbd></button>
+            <div class="action-row">
+              <button id="gentle" class="btn ghost" type="button">Mức nhẹ</button>
+              <button id="audition" class="btn ghost" type="button">Mức dễ nghe</button>
+              <button id="demo" class="btn ghost" type="button">Xử lý âm mẫu</button>
+            </div>
+            <p class="help">Lần xử lý đầu có thể chậm vì librosa biên dịch. Mức dễ nghe đẩy sát ngưỡng để tai phân biệt được hiệu ứng.</p>
+          </div>
+        </form>
+      </section>
+
+      <aside class="panel result" id="result-panel" aria-labelledby="result-title" aria-live="polite">
+        <div class="panel-head">
+          <h2 id="result-title">Kết quả</h2>
+          <p>Nghe lại và tải file đã xử lý.</p>
+        </div>
+        <div id="result-empty" class="empty">
+          <svg viewBox="0 0 120 48" aria-hidden="true">
+            <path d="M4 24h10l6-14 10 28 8-18h14l5-8 6 16h12l4-6 8 10h29" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <p>File đã xử lý sẽ hiện ở đây, kèm sóng và thông số thực tế đã áp dụng.</p>
+        </div>
+        <div id="result-body" hidden>
+          <canvas id="result-wave" class="wave"></canvas>
+          <audio id="result-audio" controls></audio>
+          <dl id="result-meta" class="meta"></dl>
+          <p id="result-note" class="help" hidden></p>
+          <div class="result-save">
+            <label class="text-field" for="result-seconds">Số giây muốn tải</label>
+            <input id="result-seconds" type="number" min="1" step="1" inputmode="numeric">
+            <p class="help">Chỉ dùng cho file kết quả vừa xử lý. Nhập số giây đầu muốn giữ, hoặc để bằng cả bài để tải nguyên bản.</p>
+            <button id="download" class="btn primary" type="button">Tải file kết quả</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+    </div>
+
+    <div id="panel-youtube" class="tab-panel" data-panel="youtube" role="tabpanel" aria-labelledby="tab-youtube" hidden>
+    <section class="panel youtube" aria-labelledby="yt-title">
+      <div class="panel-head">
+        <h2 id="yt-title">Tải audio từ YouTube</h2>
+        <p>Chỉ có thời điểm bắt đầu, thời điểm kết thúc, và thư mục anh muốn lưu.</p>
+      </div>
+      <p id="yt-tool-note" class="note" hidden></p>
+      <form id="youtube-form" novalidate>
+        <div class="yt-grid">
+          <label class="text-field span-3">
+            Link YouTube
+            <input id="yt-url" type="url" placeholder="https://www.youtube.com/watch?v=..." required>
+          </label>
+          <label class="text-field">
+            Bắt đầu
+            <input id="yt-start" type="text" placeholder="1:12:00" inputmode="numeric" spellcheck="false" required>
+          </label>
+          <label class="text-field">
+            Kết thúc
+            <input id="yt-end" type="text" placeholder="1:13:00" inputmode="numeric" spellcheck="false" required>
+          </label>
+          <label class="text-field span-3">
+            Thư mục lưu
+            <span class="folder-row">
+              <input id="yt-dir" type="text" placeholder="Bấm Chọn thư mục, hoặc dán đường dẫn" spellcheck="false" required>
+              <button id="yt-browse" class="btn ghost" type="button">Chọn thư mục</button>
+            </span>
+          </label>
+        </div>
+        <details class="advanced">
+          <summary>Cookies</summary>
+          <label class="text-field">
+            File cookies.txt
+            <input id="yt-cookies" type="text" placeholder="Để trống nếu dùng Downloads\cookies.txt" spellcheck="false">
+          </label>
+          <p id="yt-cookies-note" class="help"></p>
+        </details>
+        <p class="help">Ví dụ 1:12:00 đến 1:13:00 lưu đúng một phút đó. Thư mục không cố định: mỗi lần có thể chọn chỗ khác.</p>
+        <p id="yt-error" class="error" role="alert" hidden></p>
+        <p id="yt-status" class="status" aria-live="polite"></p>
+        <button id="yt-submit" class="btn primary" type="submit">Tải và lưu MP3</button>
+        <div id="yt-result" hidden>
+          <audio id="yt-audio" controls></audio>
+          <p id="yt-saved" class="help"></p>
+        </div>
+      </form>
+    </section>
+    </div>
+
+    <footer>
+      <a href="/docs">Tài liệu API</a>
+      <span>CLI: <code>python cli.py --help</code></span>
+      <span>Máy chủ: <code>python api.py</code></span>
+    </footer>
+  </div>
+  <noscript>Cần bật JavaScript để dùng giao diện. API vẫn dùng được tại /docs.</noscript>
+  <script src="/static/app.js?v=5"></script>
+</body>
+</html>

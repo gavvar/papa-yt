@@ -1,0 +1,21 @@
+Viết một script Python để tự động hóa quy trình Audio Data Augmentation (biến đổi dữ liệu âm thanh) phục vụ cho bài toán huấn luyện mô hình và thử nghiệm xử lý tín hiệu số (DSP).
+
+Yêu cầu kỹ thuật:
+
+Thư viện: Dùng pydub, librosa, hoặc scipy. Xuất file định dạng MP3/WAV.
+
+Các hàm xử lý tín hiệu (Processing Steps):
+
+Pitch Shift: Cho phép thay đổi tone nhẹ (từ -1.5 đến +1.5 semitones).
+
+Speed/Time Stretch: Thay đổi tốc độ phát (tempo) trong khoảng 0.95x đến 1.05x mà không làm biến dạng giọng quá nhiều.
+
+EQ Filter: Áp dụng High-Pass Filter (cắt dưới 70Hz) và Low-Pass Filter (cắt trên 15kHz) để tối ưu phổ tần số.
+
+Noise Injector: Chèn một dải nhiễu nền cực nhỏ (pink noise hoặc white noise) ở mức gain -48dB để tăng tính đa dạng cho dữ liệu audio.
+
+Tính năng: Viết thành một công cụ dòng lệnh (CLI) nhận file input và trả file output, có sẵn tham số mặc định nhẹ nhàng để âm thanh đầu ra giữ được chất lượng tự nhiên.
+
+Đầu ra: Code đầy đủ, có comment hướng dẫn cài đặt thư viện cần thiết
+
+lưu ý có ui,ux, viết api luôn.

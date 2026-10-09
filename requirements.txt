@@ -1,0 +1,17 @@
+# Audio Augment
+# Cai dat (Windows PowerShell, trong thu muc nay):
+#   python -m venv .venv
+#   .venv\Scripts\python.exe -m pip install -r requirements.txt
+# MP3 can them FFmpeg trong PATH:
+#   winget install Gyan.FFmpeg
+#   https://ffmpeg.org/download.html
+
+numpy>=1.26
+scipy>=1.11
+librosa>=0.10.2
+soundfile>=0.12
+pydub>=0.25.1
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9
+yt-dlp>=2024.12.23
