@@ -259,6 +259,8 @@ def build_yt_dlp_args(
     end: str,
     output_dir: Path,
     cookies: Path | None,
+    ffmpeg: str | None = None,
+    player_client: str | None = None,
 ) -> list[str]:
     command = [
         *executable,
@@ -268,6 +270,8 @@ def build_yt_dlp_args(
         "--force-keyframes-at-cuts",
         "--download-sections",
         f"*{start}-{end}",
+        "-S",
+        "proto:https",
         "-x",
         "--audio-format",
         "mp3",
@@ -280,6 +284,12 @@ def build_yt_dlp_args(
     ]
     if sys.platform == "win32":
         command.extend(["--windows-filenames"])
+    if ffmpeg:
+        command.extend(["--ffmpeg-location", ffmpeg])
+    if player_client:
+        command.extend(["--extractor-args", f"youtube:player_client={player_client}"])
+    elif cookies is not None:
+        command.extend(["--extractor-args", "youtube:player_client=default,-web_creator"])
     if cookies is not None:
         command.extend(["--cookies", str(cookies)])
     command.append(url)
@@ -371,17 +381,138 @@ def _run_yt_dlp(
     output_dir: Path,
     cookies: Path | None,
 ) -> Path:
-    command = build_yt_dlp_args(executable, url, start, end, output_dir, cookies)
-    completed = _run(command, timeout=_timeout_for(start, end))
-    if completed.returncode != 0:
+    ffmpeg = ffmpeg_for_sections()
+    attempts: list[tuple[Path | None, str | None]] = [(cookies, None)]
+    if cookies is not None:
+        attempts.append((None, None))
+    attempts.append((None, "tv_downgraded"))
+    timeout = _timeout_for(start, end)
+    detail = ""
+    for index, (cookie_file, player_client) in enumerate(attempts):
+        if index:
+            _clear_download_dir(output_dir)
+        command = build_yt_dlp_args(
+            executable,
+            url,
+            start,
+            end,
+            output_dir,
+            cookie_file,
+            ffmpeg=ffmpeg,
+            player_client=player_client,
+        )
+        completed = _run(command, timeout=timeout)
+        if completed.returncode == 0:
+            return _downloaded_file(output_dir, completed.stdout)
         detail = completed.stderr.decode("utf-8", errors="replace").strip()
-        last_line = detail.splitlines()[-1][:300] if detail else "yt-dlp dừng với lỗi."
-        raise AudioError(f"Không tải được đoạn YouTube. {last_line}")
-    printed = [
-        line.strip()
-        for line in completed.stdout.decode("utf-8", errors="replace").splitlines()
-        if line.strip()
-    ]
+        if not _section_denied(detail):
+            break
+    raise AudioError(f"Không tải được đoạn YouTube. {_yt_dlp_failure_message(detail, ffmpeg)}")
+
+
+def ffmpeg_for_sections() -> str | None:
+    """Chọn FFmpeg cắt được đoạn YouTube. Bản 8.1 và bản nightly trước 2026-08-05 hay bị YouTube từ chối."""
+    best_path: str | None = None
+    best_score = -1
+    for path in _ffmpeg_candidates():
+        score = _ffmpeg_section_score(path)
+        if score > best_score:
+            best_score = score
+            best_path = path
+    return best_path
+
+
+def _ffmpeg_candidates() -> list[str]:
+    if sys.platform == "win32":
+        completed = subprocess.run(
+            ["where.exe", "ffmpeg"],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        found = [line.strip().strip('"') for line in completed.stdout.splitlines() if line.strip()]
+        if found:
+            return found
+    found_one = shutil.which("ffmpeg")
+    return [found_one] if found_one else []
+
+
+_FFMPEG_SCORE: dict[str, int] = {}
+
+
+def _ffmpeg_section_score(path: str) -> int:
+    cached = _FFMPEG_SCORE.get(path)
+    if cached is not None:
+        return cached
+    line = ""
+    try:
+        kwargs: dict = {"capture_output": True, "text": True, "timeout": 20, "check": False}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        completed = subprocess.run([path, "-version"], **kwargs)
+        if completed.returncode == 0:
+            line = ((completed.stdout or completed.stderr or "").splitlines() or [""])[0]
+    except (OSError, subprocess.TimeoutExpired):
+        line = ""
+    score = _score_ffmpeg_version(line)
+    _FFMPEG_SCORE[path] = score
+    return score
+
+
+def _score_ffmpeg_version(line: str) -> int:
+    nightly = re.search(r"-(\d{8})\b", line)
+    if nightly:
+        return 860 if int(nightly.group(1)) >= 20260805 else 120
+    match = re.search(r"ffmpeg version\s+(\d+)\.(\d+)", line, re.IGNORECASE)
+    if not match:
+        return 400
+    major = int(match.group(1))
+    minor = int(match.group(2))
+    if (major, minor) == (8, 1):
+        return 100
+    if major >= 9:
+        return 1000 + minor
+    if major == 8 and minor == 0:
+        return 900
+    if major == 7:
+        return 700
+    if major > 0:
+        return 500 + major
+    return 400
+
+
+def _section_denied(stderr: str) -> bool:
+    text = stderr.lower()
+    return (
+        "3436169992" in stderr
+        or "403" in stderr
+        or "forbidden" in text
+        or "http error 400" in text
+        or "server returned 400" in text
+        or "server returned 403" in text
+    )
+
+
+def _yt_dlp_failure_message(stderr: str, ffmpeg: str | None) -> str:
+    if _section_denied(stderr):
+        name = Path(ffmpeg).name if ffmpeg else "ffmpeg"
+        return (
+            f"YouTube từ chối đoạn này khi {name} đang cắt. "
+            "Để trống cookies rồi thử lại. Nếu máy đang dùng FFmpeg 8.1, cài bản 9: winget install Gyan.FFmpeg"
+        )
+    lines = [line.strip() for line in stderr.splitlines() if line.strip()]
+    return lines[-1][:300] if lines else "yt-dlp dừng với lỗi."
+
+
+def _clear_download_dir(folder: Path) -> None:
+    for item in folder.iterdir():
+        if item.is_file():
+            item.unlink(missing_ok=True)
+
+
+def _downloaded_file(output_dir: Path, stdout: bytes) -> Path:
+    printed = [line.strip() for line in stdout.decode("utf-8", errors="replace").splitlines() if line.strip()]
     if printed:
         candidate = Path(printed[-1].strip('"'))
         if candidate.is_file():
@@ -424,7 +555,7 @@ def _fit_keep(
 
 
 def _trim_mp3(source: Path, dest: Path, offset: float, keep: float) -> None:
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = ffmpeg_for_sections()
     if not ffmpeg:
         raise AudioError("Cắt độ dài cần FFmpeg trong PATH.")
     command = [
