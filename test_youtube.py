@@ -11,12 +11,14 @@ from pathlib import Path
 
 from processor import AudioError, ffmpeg_available
 from youtube_clip import (
+    _blocked_dir,
     _fit_keep,
     _resolve_section,
     _trim_mp3,
     build_yt_dlp_args,
     duration_label,
     parse_timestamp,
+    yt_dlp_command,
 )
 
 
@@ -24,6 +26,21 @@ def check(name: str, condition: bool, detail: str = "") -> None:
     if not condition:
         raise SystemExit(f"FAIL {name} {detail}")
     print(f"OK {name}")
+
+
+def test_yt_dlp_comes_from_python() -> None:
+    import os
+
+    windir = os.environ.get("WINDIR")
+    if windir:
+        broken = Path(windir) / "System32" / "yt-dlp.exe"
+        check("ignore Windows yt-dlp.exe", _blocked_dir(broken), str(broken))
+    command = yt_dlp_command()
+    check(
+        "uses the project Python package",
+        command == [sys.executable, "-m", "yt_dlp"],
+        str(command),
+    )
 
 
 def test_times() -> None:
@@ -98,6 +115,7 @@ def test_trim_to_requested_length() -> None:
 
 
 def main() -> int:
+    test_yt_dlp_comes_from_python()
     test_times()
     test_command_matches_usual_flags()
     test_trim_to_requested_length()

@@ -122,12 +122,17 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
 
 
 def yt_dlp_command() -> list[str] | None:
-    found = shutil.which("yt-dlp")
-    if found:
-        return [found]
+    """Dùng gói pip cùng Python của app.
+
+    Bản yt-dlp.exe trong C:\\WINDOWS\\system32 hay hỏng kho lưu của PyInstaller
+    (PYI-24112) nên không được ưu tiên.
+    """
     try:
         import yt_dlp  # noqa: F401
     except ImportError:
+        found = shutil.which("yt-dlp")
+        if found and not _blocked_dir(Path(found)):
+            return [found]
         return None
     return [sys.executable, "-m", "yt_dlp"]
 
@@ -164,8 +169,14 @@ def download_section(
     cookie_file = _resolve_cookies(cookies)
     command_base = yt_dlp_command()
     if command_base is None:
+        found = shutil.which("yt-dlp")
+        if found and _blocked_dir(Path(found)):
+            raise AudioError(
+                "File yt-dlp trong thư mục Windows bị hỏng nên không dùng. "
+                f"Đổi tên hoặc xóa {found}, rồi chạy lại run.bat."
+            )
         raise AudioError(
-            "Chưa thấy yt-dlp. Cài bằng: winget install yt-dlp.yt-dlp — rồi mở lại terminal."
+            "Chưa thấy yt-dlp. Chạy lại run.bat, hoặc: .venv\\Scripts\\python.exe -m pip install -r requirements.txt"
         )
     if not ffmpeg_available():
         raise AudioError("Tải audio từ YouTube cần FFmpeg trong PATH.")
@@ -337,12 +348,9 @@ def _blocked_dir(folder: Path) -> bool:
     windir = os.environ.get("WINDIR")
     if not windir:
         return False
-    windows = Path(windir).resolve()
-    try:
-        folder.relative_to(windows)
-        return True
-    except ValueError:
-        return False
+    windows = os.path.normcase(str(Path(windir).resolve()))
+    target = os.path.normcase(str(Path(folder).resolve()))
+    return target == windows or target.startswith(windows + os.sep)
 
 
 def _resolve_cookies(cookies: str | Path | None) -> Path | None:
